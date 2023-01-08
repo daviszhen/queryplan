@@ -583,6 +583,7 @@ func (b *baseBinder) baseBindColRef(astExpr *tree.UnresolvedName, depth int32, i
    整体的思路是用函数名和参数类型，找到函数体，并构造`plan.Expr_F`。
    
    要说明的是：
+   
    - 聚合函数。调用b.impl.BindAggFunc构建。由具体的XXXBinder实现。不是每个XXXBinder都支持聚合函数。下面介绍XXXBinder时，再讲。
    
    - 窗口函数。调用b.impl.BindWinFunc构建。目前没有支持窗口函数，不多讲。
@@ -889,21 +890,19 @@ func (qb *QueryBuilder) remapAllColRefs(nodeID int32, colRefCnt map[[2]int32]int
 type ColRefRemapping struct {
     //映射：在此节点上要变化的列引用->
     //在此节点上所有要变化的列引用中序号。即localToGlobal的序号。
-	globalToLocal map[[2]int32][2]int32
+    globalToLocal map[[2]int32][2]int32
     //在此节点上要变化的列引用
-	localToGlobal [][2]int32
+    localToGlobal [][2]int32
 }
 
 //记录要变化的列引用
 func (m *ColRefRemapping) addColRef(colRef [2]int32) { //globalRef
-	m.globalToLocal[colRef] = [2]int32{0, int32(len(m.localToGlobal))} // global colRef -> [0, index of the localToGlobal] = global colRef
-	m.localToGlobal = append(m.localToGlobal, colRef)
+    m.globalToLocal[colRef] = [2]int32{0, int32(len(m.localToGlobal))} // global colRef -> [0, index of the localToGlobal] = global colRef
+    m.localToGlobal = append(m.localToGlobal, colRef)
 }
 ```
 
-
-
-#### scan节点
+#### SCAN节点
 
 对filterlist增加colRefCnt列引用计数。
 
@@ -940,6 +939,100 @@ func (qb *QueryBuilder) remapExpr(expr *plan.Expr, colMap map[[2]int32][2]int32)
 - newTableDef中新列对应的原先的列引用（internalRemapping.localToGlobal[i]），因为发生了变化。要记录到返回的remapping中，告诉父亲节点，哪些列引用已经变化。
 
 - 生成新的projectlist。生成新的列引用。
+
+#### AGG节点
+
+对groupby,agglist增加colRefCnt列引用计数。
+
+递归对子节点列引用重映射。递归完成后，得到子节点变化的列引用childRemapping。
+
+对groupby进行处理。
+
+- 减少colRefCnt列引用计数。
+
+- remapExper重映射列引用。替换子节点变化的列引用(childRemapping)。
+
+- 记录此节点要变化的列引用。由于colRefCnt的变化，此节点的某些列引用要删掉，导致列引用的变化。变化的列引用记录到remapping中，告诉父亲节点，哪些列引用已经变化。
+
+- 生成新的projectlist。生成新的列引用。
+
+对aggList进行处理。与对groupby的处理类似。
+
+- 减少colRefCnt列引用计数。
+
+- remapExper重映射列引用。替换子节点变化的列引用(childRemapping)。
+
+- 记录此节点要变化的列引用。由于colRefCnt的变化，此节点的某些列引用要删掉，导致列引用的变化。变化的列引用记录到remapping中，告诉父亲节点，哪些列引用已经变化。
+
+- 生成新的projectlist。生成新的列引用。
+
+#### 排序节点
+
+对orderby增加colRefCnt列引用计数。
+
+递归对子节点列引用重映射。递归完成后，得到子节点变化的列引用childRemapping。
+
+对orderby进行处理。
+
+- 减少colRefCnt列引用计数。
+
+- remapExper重映射列引用。替换子节点变化的列引用(childRemapping)。
+
+处理子节点变化的列引用(childRemapping.localToGlobal)。
+
+- 记录此节点要变化的列引用。由于colRefCnt的变化，此节点的某些列引用要删掉，导致列引用的变化。变化的列引用记录到remapping中，告诉父亲节点，哪些列引用已经变化。
+
+- 生成新的projectlist。生成新的列引用。
+
+#### FILTER节点
+
+对filterlist增加colRefCnt列引用计数。
+
+递归对子节点列引用重映射。递归完成后，得到子节点变化的列引用childRemapping。
+
+对filterlist进行处理。
+
+- 减少colRefCnt列引用计数。
+
+- remapExper重映射列引用。替换子节点变化的列引用(childRemapping)。
+
+处理子节点变化的列引用(childRemapping.localToGlobal)。
+
+- 记录此节点要变化的列引用。由于colRefCnt的变化，此节点的某些列引用要删掉，导致列引用的变化。变化的列引用记录到remapping中，告诉父亲节点，哪些列引用已经变化。
+
+- 生成新的projectlist。生成新的列引用。
+
+#### 投影节点
+
+对projectList排除掉不需要的表达式，对需要的表达式增加colRefCnt列引用计数。
+
+递归对子节点列引用重映射。递归完成后，得到子节点变化的列引用childRemapping。
+
+处理保留下来的投影表达式。
+
+- 减少colRefCnt列引用计数。
+
+- remapExper重映射列引用。替换子节点变化的列引用(childRemapping)。
+
+- 记录此节点要变化的列引用。由于colRefCnt的变化，此节点的某些列引用要删掉，导致列引用的变化。变化的列引用记录到remapping中，告诉父亲节点，哪些列引用已经变化。
+
+- 生成新的projectlist。
+
+#### 小结
+
+每个节点上的处理类似。
+
+先对表达式增加引用计数。
+
+其次对子节点递归执行重映射。
+
+之后对表达式减少引用计数。
+
+用子节点变化的列引用，重映射表达式中的列引用。
+
+生成新的projectlist。
+
+每个节点都会生成projectList。
 
 ## 其它plan树上的处理
 
