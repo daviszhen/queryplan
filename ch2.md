@@ -224,3 +224,193 @@ buildSubJoinTree基于DFS。
 ### 小结
 
 join定序的算法，需要找到参考的论文。
+
+## q5
+
+q5也是多表，相比q3没有新增特殊内容。
+
+q5构建过程同q3，不再赘述。
+
+```sql
+select
+    n_name,
+    sum(l_extendedprice * (1 - l_discount)) as revenue
+from
+    customer,
+    orders,
+    lineitem,
+    supplier,
+    nation,
+    region
+where
+    c_custkey = o_custkey
+    and l_orderkey = o_orderkey
+    and l_suppkey = s_suppkey
+    and c_nationkey = s_nationkey
+    and s_nationkey = n_nationkey
+    and n_regionkey = r_regionkey
+    and r_name = 'AMERICA'
+    and o_orderdate >= date '1994-01-01'
+    and o_orderdate < date '1994-01-01' + interval '1' year
+group by
+    n_name
+order by
+    revenue desc
+;
+```
+
+## q10
+
+q10也是多表，相比q3没有新增特殊内容。
+
+q10构建过程同q3，不再赘述。
+
+```sql
+select
+    c_custkey,
+    c_name,
+    sum(l_extendedprice * (1 - l_discount)) as revenue,
+    c_acctbal,
+    n_name,
+    c_address,
+    c_phone,
+    c_comment
+from
+    customer,
+    orders,
+    lineitem,
+    nation
+where
+    c_custkey = o_custkey
+    and l_orderkey = o_orderkey
+    and o_orderdate >= date '1993-03-01'
+    and o_orderdate < date '1993-03-01' + interval '3' month
+    and l_returnflag = 'R'
+    and c_nationkey = n_nationkey
+group by
+    c_custkey,
+    c_name,
+    c_acctbal,
+    c_phone,
+    n_name,
+    c_address,
+    c_comment
+order by
+    revenue desc
+limit 20
+;
+```
+
+## q12
+
+q12多表查询，无子查询。与q3的构建过程相同。
+
+q12多了个Tuple类型。
+
+```sql
+select
+    l_shipmode,
+    sum(case
+        when o_orderpriority = '1-URGENT'
+            or o_orderpriority = '2-HIGH'
+            then 1
+        else 0
+    end) as high_line_count,
+    sum(case
+        when o_orderpriority <> '1-URGENT'
+            and o_orderpriority <> '2-HIGH'
+            then 1
+        else 0
+    end) as low_line_count
+from
+    orders,
+    lineitem
+where
+    o_orderkey = l_orderkey
+    and l_shipmode in ('FOB', 'TRUCK')
+    and l_commitdate < l_receiptdate
+    and l_shipdate < l_commitdate
+    and l_receiptdate >= date '1996-01-01'
+    and l_receiptdate < date '1996-01-01' + interval '1' year
+group by
+    l_shipmode
+order by
+    l_shipmode
+;
+```
+
+### 改写IN Tuple表达式
+
+In Tuple表达式的AST形式。
+
+![](./images/q12-in-tuple.jpg)
+
+将`a IN Tuple(b ,c )`改写为形式`a = b or c`。即相等表达式的OR。
+
+### 小结
+
+q12引入了Tuple类型。
+
+## q14
+
+q14也是多表，相比q3没有新增特殊内容。
+
+q14构建过程同q3，不再赘述。
+
+```sql
+select
+    100.00 * sum(case
+        when p_type like 'PROMO%'
+            then l_extendedprice * (1 - l_discount)
+        else 0
+    end) / sum(l_extendedprice * (1 - l_discount)) as promo_revenue
+from
+    lineitem,
+    part
+where
+    l_partkey = p_partkey
+    and l_shipdate >= date '1996-04-01'
+    and l_shipdate < date '1996-04-01' + interval '1' month;
+```
+
+## q19
+
+没有子查询，仅是多表JOIN。WHERE条件复杂。构建过程与上文的多表构建没有什么区别。
+
+```sql
+select
+    sum(l_extendedprice* (1 - l_discount)) as revenue
+from
+    lineitem,
+    part
+where
+    (
+        p_partkey = l_partkey
+        and p_brand = 'Brand#23'
+        and p_container in ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
+        and l_quantity >= 5 and l_quantity <= 5 + 10
+        and p_size between 1 and 5
+        and l_shipmode in ('AIR', 'AIR REG')
+        and l_shipinstruct = 'DELIVER IN PERSON'
+    )
+    or
+    (
+        p_partkey = l_partkey
+        and p_brand = 'Brand#15'
+        and p_container in ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
+        and l_quantity >= 14 and l_quantity <= 14 + 10
+        and p_size between 1 and 10
+        and l_shipmode in ('AIR', 'AIR REG')
+        and l_shipinstruct = 'DELIVER IN PERSON'
+    )
+    or
+    (
+        p_partkey = l_partkey
+        and p_brand = 'Brand#44'
+        and p_container in ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
+        and l_quantity >= 28 and l_quantity <= 28 + 10
+        and p_size between 1 and 15
+        and l_shipmode in ('AIR', 'AIR REG')
+        and l_shipinstruct = 'DELIVER IN PERSON'
+    );
+```
