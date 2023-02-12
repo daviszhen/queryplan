@@ -1037,3 +1037,39 @@ func (qb *QueryBuilder) remapExpr(expr *plan.Expr, colMap map[[2]int32][2]int32)
 ## 其它plan树上的处理
 
 q1里面没有，后续再讲。
+
+# 单表 q6
+
+q6 单表，无子查询，有聚合函数，无group by。
+
+> select  
+>    sum(l_extendedprice * l_discount) as revenue  
+> from  
+>    lineitem  
+> where  
+>    l_shipdate >= date '1994-01-01'  
+>    and l_shipdate < date '1994-01-01' + interval '1' year  
+>    and l_discount between 0.03 - 0.01 and 0.03 + 0.01  
+>    and l_quantity < 24;
+
+整体过程与q1相同。
+
+q2用了between语句。`l_discount between 0.03 - 0.01 and 0.03 + 0.01`
+
+其ast形式。
+
+![](./images/q6-between.jpg)
+
+## 改写between
+
+> func (b *baseBinder) bindRangeCond(astExpr *tree.RangeCond, depth int32, isRoot bool) (*plan.Expr, error) 完成改写
+
+将`a between b and c `改写为:`a >= b AND a <= c`。
+
+即将tree.RangeCond改写为 and 函数表达式。
+
+## 规范化列引用
+
+对RangCond.{Left,From,To}三个表达式中的列引用进行规范化。
+
+由函数`qualifyColumnNames`完成。
